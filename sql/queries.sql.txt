@@ -1,0 +1,14 @@
+-- Tabellenstruktur für statische Webseiten-Strukturen
+CREATE TABLE pages (
+    id BIGSERIAL PRIMARY KEY,
+    title VARCHAR(150) NOT NULL,
+    slug VARCHAR(150) UNIQUE NOT NULL, -- Für lesbare URLs (z.B. /ueber-uns)
+    content TEXT,
+    meta_description VARCHAR(255),
+    is_published BOOLEAN DEFAULT false,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Index zur Beschleunigung von URL-Abfragen
+CREATE INDEX idx_pages_slug ON pages(slug);

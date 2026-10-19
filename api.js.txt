@@ -1,0 +1,14 @@
+import axios from 'axios';
+
+const api = axios.create({
+    baseURL: 'http://localhost:8080/api',
+    headers: { 'Content-Type': 'application/json' }
+});
+
+export const pageApi = {
+    getAll: () => api.get('/pages'),
+    getBySlug: (slug) => api.get(`/pages/${slug}`),
+    create: (data) => api.post('/pages', data),
+    update: (id, data) => api.put(`/pages/${id}`, data),
+    delete: (id) => api.delete(`/pages/${id}`),
+};

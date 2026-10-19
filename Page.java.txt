@@ -1,0 +1,29 @@
+@Entity
+@Table(name = "pages")
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class Page {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @NotBlank(message = "Titel darf nicht leer sein")
+    private String title;
+
+    @NotBlank(message = "Slug darf nicht leer sein")
+    @Column(unique = true)
+    private String slug;
+
+    @Column(columnDefinition = "TEXT")
+    private String content;
+
+    private boolean isPublished;
+    
+    // Automatische Zeitstempel
+    private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
+
+    @PrePersist protected void onCreate() { createdAt = LocalDateTime.now(); updatedAt = LocalDateTime.now(); }
+    @PreUpdate protected void onUpdate() { updatedAt = LocalDateTime.now(); }
+}
