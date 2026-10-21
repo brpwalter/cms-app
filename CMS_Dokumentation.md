@@ -6,6 +6,17 @@ This document contains the complete production-ready source code and architectur
 
 ## 1. Database Schema (PostgreSQL)
 
+## Rollenkonzept
+
+| Rolle | Berechtigungen |
+| --- | --- |
+| `ADMIN` | Benutzerverwaltung und Rollenvergabe |
+| `EDITOR` | Freigabe ausstehender Beiträge anzeigen und freigeben; Seiten im WYSIWYG-Editor erstellen |
+| `EMPLOYEE` | Seiten im WYSIWYG-Editor erstellen und Freigabe beantragen; sieht nur eigene Beiträge und kann nicht freigeben |
+| `READER` | Seitenliste mit Vorschau; kann ausschliesslich veröffentlichte Seiten lesen |
+
+Die öffentliche Registrierung weist neuen Konten ausschliesslich `READER` zu. Nur Admins sehen die Benutzerverwaltung und können Konten sowie Rollen verwalten. Mitarbeiterbeiträge werden serverseitig unveröffentlicht als `PENDING_APPROVAL` gespeichert; nur Admins und Editoren dürfen sie freigeben. Die Leser-API liefert nur veröffentlichte Seiten. Rollen und Eigentümerschaft werden serverseitig an den API-Endpunkten geprüft; die UI-Routenprüfung ist ergänzend und ersetzt diese Prüfung nicht. Die initiale Admin-Rolle wird nicht durch öffentliche Registrierung vergeben.
+
 Save this as `schema.sql`. It defines the tables for users (authentication), pages (static structure), and posts (dynamic content).
 
 ```sql
@@ -17,7 +28,7 @@ CREATE TABLE users (
     username VARCHAR(50) UNIQUE NOT NULL,
     email VARCHAR(100) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
-    role VARCHAR(20) NOT NULL DEFAULT 'EDITOR',
+    role VARCHAR(20) NOT NULL DEFAULT 'READER',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -30,6 +41,8 @@ CREATE TABLE pages (
     content TEXT,
     meta_description VARCHAR(255),
     is_published BOOLEAN DEFAULT false,
+    approval_status VARCHAR(30) DEFAULT 'DRAFT',
+    author_username VARCHAR(50),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -105,6 +118,18 @@ spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.PostgreSQLDialect
 spring.jpa.hibernate.ddl-auto=update
 spring.jpa.show-sql=true
 ```
+
+Der JWT-Signaturschlüssel wird dauerhaft über die Umgebungsvariable `JWT_SECRET` bereitgestellt. Er muss Base64-kodiert sein und mindestens 32 zufällige Bytes enthalten. Ohne gesetzten Schlüssel startet das Backend absichtlich nicht. Für lokale Entwicklung kann in PowerShell einmalig ein Schlüssel erzeugt und für den Benutzer gespeichert werden:
+
+```powershell
+$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+$bytes = New-Object byte[] 32
+$rng.GetBytes($bytes)
+$env:JWT_SECRET = [Convert]::ToBase64String($bytes)
+[Environment]::SetEnvironmentVariable('JWT_SECRET', $env:JWT_SECRET, 'User')
+```
+
+Nach dem ersten Wechsel auf einen festen Schlüssel müssen sich Benutzer erneut anmelden; bereits ausgestellte Tokens wurden mit dem vorherigen Schlüssel signiert.
 
 ### `Page.java` (Domain Entity)
 ```java

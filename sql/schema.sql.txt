@@ -7,7 +7,7 @@ CREATE TABLE users (
     username VARCHAR(50) UNIQUE NOT NULL,
     email VARCHAR(100) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
-    role VARCHAR(20) NOT NULL DEFAULT 'EDITOR',
+    role VARCHAR(20) NOT NULL DEFAULT 'READER',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -20,6 +20,8 @@ CREATE TABLE pages (
     content TEXT,
     meta_description VARCHAR(255),
     is_published BOOLEAN DEFAULT false,
+    approval_status VARCHAR(30) DEFAULT 'DRAFT',
+    author_username VARCHAR(50),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -45,4 +47,4 @@ CREATE INDEX idx_posts_is_published ON posts(is_published);
 
 -- Insert initial admin user (Password hash for: "Admin2026!")
 INSERT INTO users (username, email, password_hash, role) 
-VALUES ('admin', 'admin@example.com', '$2a$10$e0myZ4cOub7WJpM6mFPMIeW7Z1S7g3dD3oQ8V6WqYF0C9JgL2z72W', 'ADMIN');
+VALUES ('admin', 'admin@example.com', '$2a$10$.jyGrGUU9KMkX7EbBqZLZuKVNh901iLCm2.Man5K.mBqTvyjephRC', 'ADMIN');

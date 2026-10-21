@@ -1,0 +1,58 @@
+.authenticated-header {
+  display: flex;
+  min-height: 58px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 clamp(16px, 4vw, 56px);
+  border-bottom: 1px solid #e2e8f0;
+  background: #fff;
+  box-sizing: border-box;
+}
+
+.authenticated-header__brand {
+  color: #172033;
+  font-size: 1.05rem;
+  font-weight: 750;
+  letter-spacing: -0.03em;
+}
+
+.authenticated-header__account {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.authenticated-header__identity {
+  color: #64748b;
+  font-size: 0.82rem;
+}
+
+.authenticated-header__logout {
+  min-height: 36px;
+  padding: 7px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #334155;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.authenticated-header__logout:hover {
+  border-color: #94a3b8;
+  background: #f8fafc;
+}
+
+.authenticated-header__logout:focus-visible {
+  outline: 3px solid rgb(59 130 246 / 35%);
+  outline-offset: 2px;
+}
+
+@media (max-width: 540px) {
+  .authenticated-header__identity {
+    display: none;
+  }
+}

@@ -1,4 +1,4 @@
-package com.example.cms;
+package com.cms;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
