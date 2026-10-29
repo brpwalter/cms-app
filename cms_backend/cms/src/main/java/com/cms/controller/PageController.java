@@ -1,6 +1,8 @@
 package com.cms.controller;
 
+import com.cms.dto.PageReviewRequest;
 import com.cms.entity.Page;
+import com.cms.entity.PageCorrectionComment;
 import com.cms.repository.PageRepository;
 import com.cms.service.PageService;
 import jakarta.validation.Valid;
@@ -74,6 +76,46 @@ public class PageController {
     @PreAuthorize("hasAnyRole('ADMIN', 'EDITOR')")
     public ResponseEntity<Page> approvePage(@PathVariable Long id) {
         return ResponseEntity.ok(pageService.approvePage(id));
+    }
+
+    @PostMapping("/pages/{id}/request-changes")
+    @PreAuthorize("hasAnyRole('ADMIN', 'EDITOR')")
+    public ResponseEntity<Page> requestPageChanges(@PathVariable Long id,
+                                                   @Valid @RequestBody PageReviewRequest request) {
+        if (request.getComments() != null && !request.getComments().isEmpty()) {
+            if (request.getComments().stream()
+                    .anyMatch(comment -> comment.getEndIndex() <= comment.getStartIndex())) {
+                throw new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.BAD_REQUEST,
+                        "Die markierten Textbereiche müssen eine positive Länge haben.");
+            }
+            List<PageCorrectionComment> comments = request.getComments().stream()
+                    .map(comment -> new PageCorrectionComment(
+                            comment.getStartIndex(),
+                            comment.getEndIndex(),
+                            comment.getSelectedText().trim(),
+                            comment.getFeedback().trim()))
+                    .toList();
+            return ResponseEntity.ok(pageService.requestChanges(id, comments));
+        }
+        if (request.getFeedback() == null || request.getFeedback().isBlank()) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST,
+                    "Mindestens ein Kommentar oder eine Rückmeldung ist erforderlich.");
+        }
+        return ResponseEntity.ok(pageService.requestChanges(id, request.getFeedback()));
+    }
+
+    @PostMapping("/pages/{id}/reject")
+    @PreAuthorize("hasAnyRole('ADMIN', 'EDITOR')")
+    public ResponseEntity<Page> rejectPage(@PathVariable Long id,
+                                           @Valid @RequestBody PageReviewRequest request) {
+        if (request.getFeedback() == null || request.getFeedback().isBlank()) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST,
+                    "Eine Begründung für die Ablehnung ist erforderlich.");
+        }
+        return ResponseEntity.ok(pageService.rejectPage(id, request.getFeedback()));
     }
 
     private boolean hasRole(Authentication authentication, String role) {

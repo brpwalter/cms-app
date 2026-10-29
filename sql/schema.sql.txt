@@ -22,8 +22,22 @@ CREATE TABLE pages (
     is_published BOOLEAN DEFAULT false,
     approval_status VARCHAR(30) DEFAULT 'DRAFT',
     author_username VARCHAR(50),
+    correction_feedback TEXT,
+    CONSTRAINT pages_approval_status_check
+        CHECK (approval_status IN ('DRAFT', 'PENDING_APPROVAL', 'CHANGES_REQUESTED', 'REJECTED', 'PUBLISHED')),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Selected text passages and editor comments for a correction round
+CREATE TABLE page_correction_comments (
+    page_id BIGINT NOT NULL REFERENCES pages(id) ON DELETE CASCADE,
+    comment_order INTEGER NOT NULL,
+    start_index INTEGER NOT NULL CHECK (start_index >= 0),
+    end_index INTEGER NOT NULL CHECK (end_index > start_index),
+    selected_text TEXT NOT NULL,
+    feedback TEXT NOT NULL,
+    PRIMARY KEY (page_id, comment_order)
 );
 
 -- 3. Posts Table (Dynamic Blog / News Articles)

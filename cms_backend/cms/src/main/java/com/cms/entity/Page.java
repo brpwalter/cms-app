@@ -3,6 +3,8 @@ package com.cms.entity;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "pages")
@@ -10,6 +12,8 @@ public class Page {
     public enum ApprovalStatus {
         DRAFT,
         PENDING_APPROVAL,
+        CHANGES_REQUESTED,
+        REJECTED,
         PUBLISHED
     }
 
@@ -40,6 +44,14 @@ public class Page {
 
     @Column(name = "author_username", length = 50)
     private String authorUsername;
+
+    @Column(name = "correction_feedback", columnDefinition = "TEXT")
+    private String correctionFeedback;
+
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "page_correction_comments", joinColumns = @JoinColumn(name = "page_id"))
+    @OrderColumn(name = "comment_order")
+    private List<PageCorrectionComment> correctionComments = new ArrayList<>();
 
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
@@ -123,6 +135,24 @@ public class Page {
 
     public void setAuthorUsername(String authorUsername) {
         this.authorUsername = authorUsername;
+    }
+
+    public String getCorrectionFeedback() {
+        return correctionFeedback;
+    }
+
+    public void setCorrectionFeedback(String correctionFeedback) {
+        this.correctionFeedback = correctionFeedback;
+    }
+
+    public List<PageCorrectionComment> getCorrectionComments() {
+        return correctionComments;
+    }
+
+    public void setCorrectionComments(List<PageCorrectionComment> correctionComments) {
+        this.correctionComments = correctionComments == null
+                ? new ArrayList<>()
+                : new ArrayList<>(correctionComments);
     }
 
     public LocalDateTime getCreatedAt() {

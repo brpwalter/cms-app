@@ -1,10 +1,21 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 import { pageApi, userApi } from '../api';
 import { useAuth } from '../context/AuthContext';
+import MediaLibrary from './MediaLibrary';
 import './AdminDashboard.css';
+
+const formatDateTime = (value) => {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return new Intl.DateTimeFormat('de-DE', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(date);
+};
 
 function AdminDashboard() {
   const { user } = useAuth();
@@ -16,6 +27,21 @@ function AdminDashboard() {
   const [title, setTitle] = useState('');
   const [slug, setSlug] = useState('');
   const [content, setContent] = useState('');
+  const [editingPageId, setEditingPageId] = useState(null);
+  const [editingPageStatus, setEditingPageStatus] = useState(null);
+  const [editingPageComments, setEditingPageComments] = useState([]);
+  const [mediaLibraryOpen, setMediaLibraryOpen] = useState(false);
+  const editorRef = useRef(null);
+  const [reviewPageId, setReviewPageId] = useState(null);
+  const [reviewAction, setReviewAction] = useState('');
+  const [reviewFeedback, setReviewFeedback] = useState('');
+  const [reviewPageContent, setReviewPageContent] = useState('');
+  const [reviewComments, setReviewComments] = useState([]);
+  const [selectedReviewRange, setSelectedReviewRange] = useState(null);
+  const [selectedReviewText, setSelectedReviewText] = useState('');
+  const [newCommentFeedback, setNewCommentFeedback] = useState('');
+  const [reviewError, setReviewError] = useState('');
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [isPublished, setIsPublished] = useState(false);
   const [newUser, setNewUser] = useState({ username: '', email: '', password: '', role: 'ROLE_EMPLOYEE' });
   const [message, setMessage] = useState('');
@@ -76,25 +102,50 @@ function AdminDashboard() {
     setSlug(generatedSlug);
   };
 
+  const handleInsertMedia = (asset) => {
+    const editor = editorRef.current?.getEditor();
+    if (!editor) {
+      setError('Der Beitragseditor ist momentan nicht verfügbar.');
+      return;
+    }
+    const selection = editor.getSelection(true);
+    const index = selection ? selection.index : editor.getLength() - 1;
+    editor.insertEmbed(index, 'image', asset.url, 'user');
+    editor.setSelection(index + 1, 0, 'user');
+    setMediaLibraryOpen(false);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setMessage('');
     setError('');
-    const newPage = { title, slug, content, published: !isEmployee && isPublished };
+    const pageData = { title, slug, content, published: !isEmployee && isPublished };
 
     try {
-      await pageApi.create(newPage);
-      setMessage(isEmployee
-        ? 'Beitrag wurde zur Freigabe an den Editor übermittelt.'
-        : isPublished ? 'Beitrag veröffentlicht.' : 'Beitrag als Entwurf gespeichert.');
+      if (editingPageId !== null) {
+        await pageApi.update(editingPageId, pageData);
+        setMessage(editingPageStatus === 'PENDING_APPROVAL'
+          ? 'Beitrag wurde bearbeitet und bleibt zur Freigabe ausstehend.'
+          : 'Überarbeiteter Beitrag wurde erneut zur Freigabe vorgelegt.');
+        setEditingPageId(null);
+        setEditingPageStatus(null);
+        setEditingPageComments([]);
+      } else {
+        await pageApi.create(pageData);
+        setMessage(isEmployee
+          ? 'Beitrag wurde zur Freigabe an den Editor übermittelt.'
+          : isPublished ? 'Beitrag veröffentlicht.' : 'Beitrag als Entwurf gespeichert.');
+      }
       setTitle('');
       setSlug('');
       setContent('');
       setIsPublished(false);
       await loadPages();
     } catch (submitError) {
-      setError('Seite konnte nicht erstellt werden. Der Slug ist möglicherweise bereits vergeben.');
-      console.error('Fehler beim Erstellen der Seite:', submitError);
+      setError(editingPageId !== null
+        ? 'Korrektur konnte nicht eingereicht werden. Prüfe, ob der Slug bereits vergeben ist.'
+        : 'Seite konnte nicht erstellt werden. Der Slug ist möglicherweise bereits vergeben.');
+      console.error('Fehler beim Speichern des Beitrags:', submitError);
     }
   };
 
@@ -124,6 +175,110 @@ function AdminDashboard() {
       setError('Beitrag konnte nicht freigegeben werden.');
       console.error('Fehler beim Freigeben des Beitrags:', approveError);
     }
+  };
+
+  const handleReviewSubmit = async (event) => {
+    event.preventDefault();
+    setMessage('');
+    setError('');
+    setReviewError('');
+    if (reviewAction === 'reject' && !reviewFeedback.trim()) {
+      setReviewError('Bitte gib eine Begründung ein, bevor du sie sendest.');
+      return;
+    }
+    if (reviewAction === 'changes' && reviewComments.length === 0) {
+      setReviewError('Bitte markiere mindestens eine Textstelle und füge einen Kommentar hinzu.');
+      return;
+    }
+
+    setReviewSubmitting(true);
+    try {
+      if (reviewAction === 'reject') {
+        await pageApi.reject(reviewPageId, reviewFeedback.trim());
+        setMessage('Beitrag wurde mit Begründung abgelehnt.');
+      } else {
+        await pageApi.requestChanges(reviewPageId, reviewComments);
+        setMessage('Korrekturkommentare wurden an den Mitarbeiter zurückgesendet.');
+      }
+      setReviewPageId(null);
+      setReviewAction('');
+      setReviewFeedback('');
+      setReviewComments([]);
+      setReviewPageContent('');
+      setSelectedReviewRange(null);
+      setSelectedReviewText('');
+      setNewCommentFeedback('');
+      await loadPages();
+    } catch (reviewError) {
+      const responseData = reviewError.response?.data;
+      const serverMessage = responseData?.detail || responseData?.message
+        || (typeof responseData === 'string' ? responseData : '');
+      const status = reviewError.response?.status;
+      setReviewError(serverMessage || (status
+        ? `Rückmeldung konnte nicht gesendet werden (HTTP ${status}). Bitte prüfe den Server und versuche es erneut.`
+        : 'Backend nicht erreichbar. Bitte prüfe die Serververbindung und versuche es erneut.'));
+      console.error('Fehler bei der Beitragsprüfung:', reviewError);
+    } finally {
+      setReviewSubmitting(false);
+    }
+  };
+
+  const openReview = (page, action) => {
+    setReviewPageId(page.id);
+    setReviewAction(action);
+    setReviewFeedback('');
+    setReviewPageContent(page.content || '');
+    setReviewComments([]);
+    setSelectedReviewRange(null);
+    setSelectedReviewText('');
+    setNewCommentFeedback('');
+    setReviewError('');
+  };
+
+  const handleAddReviewComment = () => {
+    if (!selectedReviewRange || !selectedReviewText.trim() || !newCommentFeedback.trim()) {
+      setReviewError('Markiere eine Textstelle und gib einen Kommentar dazu ein.');
+      return;
+    }
+    setReviewComments((comments) => [...comments, {
+      ...selectedReviewRange,
+      selectedText: selectedReviewText,
+      feedback: newCommentFeedback.trim(),
+    }]);
+    setNewCommentFeedback('');
+    setReviewError('');
+  };
+
+  const handleEditCorrection = (page) => {
+    setEditingPageId(page.id);
+    setEditingPageStatus(page.approvalStatus);
+    setEditingPageComments(page.correctionComments || []);
+    setTitle(page.title);
+    setSlug(page.slug);
+    setContent(page.content || '');
+    setIsPublished(false);
+    setMessage('');
+    setError('');
+  };
+
+  const handleEditPendingPage = (page) => {
+    setEditingPageId(page.id);
+    setEditingPageStatus(page.approvalStatus);
+    setEditingPageComments(page.correctionComments || []);
+    setTitle(page.title);
+    setSlug(page.slug);
+    setContent(page.content || '');
+    setIsPublished(false);
+    setMessage('');
+    setError('');
+  };
+
+  const handleCancelEdit = () => {
+    setEditingPageId(null);
+    setEditingPageStatus(null);
+    setTitle('');
+    setSlug('');
+    setContent('');
   };
 
   const handleCreateUser = async (event) => {
@@ -217,6 +372,8 @@ function AdminDashboard() {
   const statusLabel = (page) => {
     switch (page.approvalStatus) {
       case 'PENDING_APPROVAL': return 'Freigabe ausstehend';
+      case 'CHANGES_REQUESTED': return 'Korrektur angefordert';
+      case 'REJECTED': return 'Abgelehnt';
       case 'PUBLISHED': return 'Veröffentlicht';
       default: return 'Entwurf';
     }
@@ -255,13 +412,20 @@ function AdminDashboard() {
           {error || message}
         </div>
       )}
-
       {!isAdmin && <div className="admin-dashboard__grid">
         <section className="admin-card" aria-labelledby="create-page-title">
           <div className="admin-card__header">
-            <h2 id="create-page-title" className="admin-card__title">Neuen Beitrag schreiben</h2>
+            <h2 id="create-page-title" className="admin-card__title">
+              {editingPageId !== null
+                ? editingPageStatus === 'PENDING_APPROVAL' && isEditor ? 'Beitrag korrigieren' : 'Beitrag überarbeiten'
+                : 'Neuen Beitrag schreiben'}
+            </h2>
             <p className="admin-card__description">
-              {isEmployee ? 'Der Beitrag wird nach dem Speichern dem Editor zur Freigabe vorgelegt.' : 'Erstelle einen Beitrag oder veröffentliche ihn direkt.'}
+              {editingPageId !== null
+                ? editingPageStatus === 'PENDING_APPROVAL' && isEditor
+                  ? 'Bearbeite den eingereichten Beitrag. Nach dem Speichern bleibt er unveröffentlicht und muss separat freigegeben werden.'
+                  : `${editingPageStatus === 'REJECTED' ? 'Überarbeite den abgelehnten Beitrag anhand der Begründung' : 'Passe den Beitrag anhand des Korrekturvorschlags an'} und reiche ihn erneut zur Freigabe ein.`
+                : isEmployee ? 'Der Beitrag wird nach dem Speichern dem Editor zur Freigabe vorgelegt.' : 'Erstelle einen Beitrag oder veröffentliche ihn direkt.'}
             </p>
           </div>
 
@@ -276,20 +440,59 @@ function AdminDashboard() {
               <span className="admin-form__hint">Wird automatisch aus dem Titel erstellt.</span>
             </div>
             <div className="admin-form__field">
-              <label htmlFor="page-content">Inhalt</label>
+              <div className="admin-form__field-header">
+                <label htmlFor="page-content">Inhalt</label>
+                <button
+                  type="button"
+                  className="admin-button admin-button--preview"
+                  onClick={() => setMediaLibraryOpen(true)}
+                >
+                  Medienbibliothek
+                </button>
+              </div>
               <div className="admin-form__editor">
-                <ReactQuill theme="snow" value={content} onChange={setContent} />
+                <ReactQuill ref={editorRef} theme="snow" value={content} onChange={setContent} />
               </div>
             </div>
-            {!isEmployee && (
+            {editingPageId !== null && editingPageComments.length > 0 && (
+              <section className="admin-correction-comments" aria-label="Korrekturkommentare des Editors">
+                <h3>Korrekturkommentare des Editors</h3>
+                {editingPageComments.map((comment, index) => (
+                  <button
+                    type="button"
+                    className="admin-correction-comment"
+                    key={`${comment.startIndex}-${index}`}
+                    onClick={() => editorRef.current?.getEditor().setSelection(
+                      comment.startIndex,
+                      comment.endIndex - comment.startIndex,
+                      'user',
+                    )}
+                  >
+                    <span className="admin-correction-comment__quote">„{comment.selectedText}“</span>
+                    <span>{comment.feedback}</span>
+                    <span className="admin-form__hint">Klicken, um die Stelle im Beitrag zu markieren</span>
+                  </button>
+                ))}
+              </section>
+            )}
+            {!isEmployee && !(isEditor && editingPageStatus === 'PENDING_APPROVAL') && (
               <label className="admin-form__checkbox">
                 <input type="checkbox" checked={isPublished} onChange={(e) => setIsPublished(e.target.checked)} />
                 <span>Sofort veröffentlichen</span>
               </label>
             )}
-            <button type="submit" className="admin-button admin-button--primary">
-              {isEmployee ? 'Freigabe beantragen' : 'Beitrag speichern'}
-            </button>
+            <div className="admin-form__actions">
+              <button type="submit" className="admin-button admin-button--primary">
+                {editingPageId !== null
+                  ? editingPageStatus === 'PENDING_APPROVAL' && isEditor ? 'Änderungen speichern' : 'Beitrag erneut einreichen'
+                  : isEmployee ? 'Freigabe beantragen' : 'Beitrag speichern'}
+              </button>
+              {editingPageId !== null && (
+                <button type="button" className="admin-button admin-button--preview" onClick={handleCancelEdit}>
+                  Abbrechen
+                </button>
+              )}
+            </div>
           </form>
         </section>
 
@@ -301,9 +504,19 @@ function AdminDashboard() {
                 {isEmployee ? 'Deine Beiträge und deren Freigabestatus.' : 'Ausstehende Freigaben und veröffentlichte Seiten.'}
               </p>
             </div>
-            <span className="admin-dashboard__count">
-              {isEditor ? `${pendingPages.length} offen` : pages.length}
-            </span>
+            <div className="admin-card__header-actions">
+              <button
+                type="button"
+                className="admin-button admin-button--preview"
+                onClick={loadPages}
+                disabled={loading}
+              >
+                {loading ? 'Wird aktualisiert …' : 'Aktualisieren'}
+              </button>
+              <span className="admin-dashboard__count">
+                {isEditor ? `${pendingPages.length} offen` : pages.length}
+              </span>
+            </div>
           </div>
 
           {loading ? (
@@ -318,18 +531,37 @@ function AdminDashboard() {
                     <th scope="col">Titel</th>
                     <th scope="col">Autor</th>
                     <th scope="col">Status</th>
+                    <th scope="col">Erstellt / aktualisiert</th>
                     <th scope="col"><span className="sr-only">Aktionen</span></th>
                   </tr>
                 </thead>
                 <tbody>
                   {displayedPages.map((page) => (
-                    <tr key={page.id}>
+                    <React.Fragment key={page.id}>
+                    <tr>
                       <td className="admin-table__title">{page.title}</td>
                       <td>{page.authorUsername || '—'}</td>
                       <td>
-                        <span className={`admin-status ${page.published ? 'admin-status--published' : page.approvalStatus === 'PENDING_APPROVAL' ? 'admin-status--pending' : 'admin-status--draft'}`}>
+                        <span className={`admin-status ${page.published ? 'admin-status--published' : page.approvalStatus === 'PENDING_APPROVAL' || page.approvalStatus === 'CHANGES_REQUESTED' ? 'admin-status--pending' : page.approvalStatus === 'REJECTED' ? 'admin-status--rejected' : 'admin-status--draft'}`}>
                           {statusLabel(page)}
                         </span>
+                        {page.correctionFeedback && (
+                          <p className="admin-table__feedback">
+                            <strong>{page.approvalStatus === 'REJECTED' ? 'Begründung des Editors:' : 'Rückmeldung des Editors:'}</strong>
+                            {' '}{page.correctionFeedback}
+                          </p>
+                        )}
+                        {page.correctionComments?.map((comment, index) => (
+                          <div className="admin-table__feedback" key={`${comment.startIndex}-${index}`}>
+                            <strong>Markierte Textstelle:</strong>
+                            <blockquote className="admin-correction-comment__quote">„{comment.selectedText}“</blockquote>
+                            <strong>Korrekturhinweis:</strong> {comment.feedback}
+                          </div>
+                        ))}
+                      </td>
+                      <td className="admin-table__dates">
+                        <div><span>Erstellt:</span> <time dateTime={page.createdAt}>{formatDateTime(page.createdAt)}</time></div>
+                        <div><span>Aktualisiert:</span> <time dateTime={page.updatedAt}>{formatDateTime(page.updatedAt)}</time></div>
                       </td>
                       <td className="admin-table__actions">
                         <div className="admin-table__action-group">
@@ -347,13 +579,135 @@ function AdminDashboard() {
                             </button>
                           )}
                           {(isAdmin || isEditor) && page.approvalStatus === 'PENDING_APPROVAL' && (
-                            <button type="button" className="admin-button admin-button--primary" onClick={() => handleApprove(page.id)}>
-                              Freigeben
+                            <>
+                              {isEditor && (
+                                <button type="button" className="admin-button admin-button--preview" onClick={() => handleEditPendingPage(page)}>
+                                  Bearbeiten
+                                </button>
+                              )}
+                              <button type="button" className="admin-button admin-button--primary" onClick={() => handleApprove(page.id)}>
+                                Freigeben
+                              </button>
+                              <button type="button" className="admin-button admin-button--preview" onClick={() => {
+                                openReview(page, 'changes');
+                              }}>
+                                Korrektur anfordern
+                              </button>
+                              <button type="button" className="admin-button admin-button--danger" onClick={() => {
+                                openReview(page, 'reject');
+                              }}>
+                                Ablehnen
+                              </button>
+                            </>
+                          )}
+                          {isEmployee && (page.approvalStatus === 'CHANGES_REQUESTED' || page.approvalStatus === 'REJECTED') && (
+                            <button type="button" className="admin-button admin-button--primary" onClick={() => handleEditCorrection(page)}>
+                              {page.approvalStatus === 'REJECTED' ? 'Beitrag überarbeiten' : 'Korrektur bearbeiten'}
                             </button>
                           )}
                         </div>
                       </td>
                     </tr>
+                    {reviewPageId === page.id && (
+                      <tr>
+                        <td colSpan={5}>
+                          <form className="admin-review-form" onSubmit={handleReviewSubmit} noValidate>
+                            {reviewAction === 'reject' ? (
+                              <label className="admin-form__field">
+                                <span>Begründung für die Ablehnung (Pflichtfeld)</span>
+                                <textarea
+                                  value={reviewFeedback}
+                                  onChange={(event) => {
+                                    setReviewFeedback(event.target.value);
+                                    setReviewError('');
+                                  }}
+                                  required
+                                  aria-invalid={Boolean(reviewError)}
+                                  aria-describedby={reviewError ? `review-error-${page.id}` : undefined}
+                                />
+                              </label>
+                            ) : (
+                              <>
+                                <p className="admin-form__hint">Markiere einen oder mehrere Textabschnitte. Für jede Markierung kannst du einen Kommentar hinzufügen.</p>
+                                <div className="admin-form__editor admin-review-form__editor">
+                                  <ReactQuill
+                                    theme="snow"
+                                    value={reviewPageContent}
+                                    readOnly
+                                    modules={{ toolbar: false }}
+                                    onChangeSelection={(range, _source, quillEditor) => {
+                                      if (range && range.length > 0) {
+                                        setSelectedReviewRange({
+                                          startIndex: range.index,
+                                          endIndex: range.index + range.length,
+                                        });
+                                        setSelectedReviewText(quillEditor.getText(range.index, range.length));
+                                        setReviewError('');
+                                      } else if (range) {
+                                        setSelectedReviewRange(null);
+                                        setSelectedReviewText('');
+                                      }
+                                    }}
+                                  />
+                                </div>
+                                <p className="admin-form__hint">
+                                  {selectedReviewText.trim()
+                                    ? `Ausgewählt: „${selectedReviewText.trim()}“`
+                                    : 'Wähle im Beitrag mit der Maus eine Textstelle aus.'}
+                                </p>
+                                <label className="admin-form__field">
+                                  <span>Kommentar zur markierten Textstelle</span>
+                                  <textarea
+                                    value={newCommentFeedback}
+                                    onChange={(event) => {
+                                      setNewCommentFeedback(event.target.value);
+                                      setReviewError('');
+                                    }}
+                                  />
+                                </label>
+                                <button type="button" className="admin-button admin-button--preview" onClick={handleAddReviewComment}>
+                                  Kommentar hinzufügen
+                                </button>
+                                {reviewComments.length > 0 && (
+                                  <ol className="admin-review-comments">
+                                    {reviewComments.map((comment, index) => (
+                                      <li key={`${comment.startIndex}-${index}`}>
+                                        <blockquote>„{comment.selectedText.trim()}“</blockquote>
+                                        <p>{comment.feedback}</p>
+                                        <button
+                                          type="button"
+                                          className="admin-button admin-button--danger"
+                                          onClick={() => setReviewComments((comments) => comments.filter((_, commentIndex) => commentIndex !== index))}
+                                        >
+                                          Entfernen
+                                        </button>
+                                      </li>
+                                    ))}
+                                  </ol>
+                                )}
+                              </>
+                            )}
+                            {reviewError && (
+                              <p id={`review-error-${page.id}`} className="admin-review-form__error" role="alert">
+                                {reviewError}
+                              </p>
+                            )}
+                            <div className="admin-form__actions">
+                              <button type="submit" className="admin-button admin-button--primary" disabled={reviewSubmitting}>
+                                {reviewSubmitting ? 'Wird gesendet …' : reviewAction === 'reject' ? 'Ablehnung senden' : 'Korrektur zurücksenden'}
+                              </button>
+                              <button type="button" className="admin-button admin-button--preview" onClick={() => {
+                                setReviewPageId(null);
+                                setReviewError('');
+                              }} disabled={reviewSubmitting}>
+                                Abbrechen
+                              </button>
+                            </div>
+                          </form>
+                        </td>
+                      </tr>
+                    )}
+                    </React.Fragment>
                   ))}
                 </tbody>
               </table>
@@ -361,6 +715,13 @@ function AdminDashboard() {
           )}
         </section>
       </div>}
+
+      <MediaLibrary
+        isOpen={mediaLibraryOpen}
+        canDelete={isAdmin || isEditor}
+        onClose={() => setMediaLibraryOpen(false)}
+        onSelect={handleInsertMedia}
+      />
 
       {isAdmin && (
         <section className="admin-card admin-users" aria-labelledby="users-title">

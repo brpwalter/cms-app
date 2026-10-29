@@ -26,6 +26,8 @@ export const pageApi = {
     update: (id, data) => api.put(`/pages/${id}`, data),
     delete: (id) => api.delete(`/pages/${id}`),
     approve: (id) => api.post(`/pages/${id}/approve`),
+    requestChanges: (id, comments) => api.post(`/pages/${id}/request-changes`, { comments }),
+    reject: (id, feedback) => api.post(`/pages/${id}/reject`, { feedback }),
 };
 
 export const userApi = {
@@ -33,6 +35,18 @@ export const userApi = {
     create: (data) => api.post('/admin/users', data),
     update: (id, data) => api.put(`/admin/users/${id}`, data),
     delete: (id) => api.delete(`/admin/users/${id}`),
+};
+
+export const mediaApi = {
+    getAll: () => api.get('/admin/media'),
+    upload: (file) => {
+        const formData = new FormData();
+        formData.append('file', file);
+        return api.post('/admin/media/upload', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+        });
+    },
+    delete: (fileName) => api.delete(`/admin/media/${encodeURIComponent(fileName)}`),
 };
 
 export default api;

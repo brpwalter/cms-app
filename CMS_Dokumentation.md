@@ -11,11 +11,17 @@ This document contains the complete production-ready source code and architectur
 | Rolle | Berechtigungen |
 | --- | --- |
 | `ADMIN` | Benutzerverwaltung und Rollenvergabe |
-| `EDITOR` | Freigabe ausstehender Beiträge anzeigen und freigeben; Seiten im WYSIWYG-Editor erstellen |
-| `EMPLOYEE` | Seiten im WYSIWYG-Editor erstellen und Freigabe beantragen; sieht nur eigene Beiträge und kann nicht freigeben |
+| `EDITOR` | Ausstehende Beiträge direkt bearbeiten und danach freigeben; alternativ ablehnen oder markierte Textstellen mit Kommentaren zur Korrektur zurücksenden; Seiten im WYSIWYG-Editor erstellen |
+| `EMPLOYEE` | Seiten im WYSIWYG-Editor erstellen und Freigabe beantragen; sieht nur eigene Beiträge, kann markierte Stellen anwählen und Korrekturen erneut einreichen |
 | `READER` | Seitenliste mit Vorschau; kann ausschliesslich veröffentlichte Seiten lesen |
 
-Die öffentliche Registrierung weist neuen Konten ausschliesslich `READER` zu. Nur Admins sehen die Benutzerverwaltung und können Konten sowie Rollen verwalten. Mitarbeiterbeiträge werden serverseitig unveröffentlicht als `PENDING_APPROVAL` gespeichert; nur Admins und Editoren dürfen sie freigeben. Die Leser-API liefert nur veröffentlichte Seiten. Rollen und Eigentümerschaft werden serverseitig an den API-Endpunkten geprüft; die UI-Routenprüfung ist ergänzend und ersetzt diese Prüfung nicht. Die initiale Admin-Rolle wird nicht durch öffentliche Registrierung vergeben.
+Die öffentliche Registrierung weist neuen Konten ausschliesslich `READER` zu. Nur Admins sehen die Benutzerverwaltung und können Konten sowie Rollen verwalten. Mitarbeiterbeiträge werden serverseitig unveröffentlicht als `PENDING_APPROVAL` gespeichert. Editoren können ausstehende Beiträge direkt bearbeiten; nach dem Speichern bleiben sie unveröffentlicht und ausstehend, bis sie separat freigegeben werden. Alternativ können Editoren Beiträge ablehnen oder mit Kommentaren zu markierten Textstellen als `CHANGES_REQUESTED` an den Mitarbeiter zurücksenden. Kommentare speichern die Textposition, den markierten Text und den Hinweis. Mitarbeitende sehen die Kommentare und können die jeweilige Textstelle im Editor anwählen. Überarbeitete Beiträge werden erneut zur Freigabe eingereicht. Eine Ablehnung wird als `REJECTED` mit Begründung gespeichert. Die Leser-API liefert nur veröffentlichte Seiten. Rollen und Eigentümerschaft werden serverseitig an den API-Endpunkten geprüft; die UI-Routenprüfung ist ergänzend und ersetzt diese Prüfung nicht. Die initiale Admin-Rolle wird nicht durch öffentliche Registrierung vergeben.
+
+Bei einer bestehenden Datenbank muss die Constraint für `approval_status` einmalig mit dem Skript `sql/migrations/20261029_expand_page_approval_status.sql` aktualisiert werden. Das Spring-Update-Schema erweitert bestehende Check-Constraints nicht automatisch.
+
+Für abschnittsbezogene Korrekturkommentare muss die Tabelle `page_correction_comments` einmalig mit `sql/migrations/20261029_create_page_correction_comments.sql` angelegt werden.
+
+Die Medienbibliothek speichert JPEG-, PNG-, GIF- und WebP-Bilder bis 10 MB im konfigurierten lokalen Verzeichnis `uploads`. Mitarbeitende und Editoren können Medien durchsuchen, hochladen und in Beiträge einfügen; Löschen ist Admins und Editoren vorbehalten. Bereits in Beiträgen verwendete Medien werden bei Löschung nicht automatisch ersetzt.
 
 Save this as `schema.sql`. It defines the tables for users (authentication), pages (static structure), and posts (dynamic content).
 
@@ -43,8 +49,22 @@ CREATE TABLE pages (
     is_published BOOLEAN DEFAULT false,
     approval_status VARCHAR(30) DEFAULT 'DRAFT',
     author_username VARCHAR(50),
+    correction_feedback TEXT,
+    CONSTRAINT pages_approval_status_check
+        CHECK (approval_status IN ('DRAFT', 'PENDING_APPROVAL', 'CHANGES_REQUESTED', 'REJECTED', 'PUBLISHED')),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Selected text passages and editor comments for a correction round
+CREATE TABLE page_correction_comments (
+    page_id BIGINT NOT NULL REFERENCES pages(id) ON DELETE CASCADE,
+    comment_order INTEGER NOT NULL,
+    start_index INTEGER NOT NULL CHECK (start_index >= 0),
+    end_index INTEGER NOT NULL CHECK (end_index > start_index),
+    selected_text TEXT NOT NULL,
+    feedback TEXT NOT NULL,
+    PRIMARY KEY (page_id, comment_order)
 );
 
 -- 3. Posts Table (Dynamic Blog / News Articles)
